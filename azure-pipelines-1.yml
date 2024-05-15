@@ -1,0 +1,84 @@
+trigger: none
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  
+pool: 
+  vmImage: 'windows-latest'  
+  
+stages:
+  - stage: Build 
+    jobs:
+      - job: Build 
+        
+        steps:
+          - task: NuGetToolInstaller@1
+        
+          - task: NuGetCommand@2
+            inputs:
+              command: 'restore'
+              restoreSolution: '$(solution)'
+              feedsToUse: 'select'
+
+          - task: DotNetCoreCLI@2
+            inputs:
+              command: 'build'
+              projects: '**/*.csproj'
+              arguments: '--configuration $(buildConfiguration)'
+
+          - task: DotNetCoreCLI@2
+            inputs:
+              command: 'publish'
+              publishWebProjects: true
+              arguments: '--configuration $(buildConfiguration) --output $(build.artifactstagingdirectory)'
+
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'drop'
+              publishLocation: 'Container'
+
+   
+
+  - stage: test 
+    jobs:
+       - job: test  
+         steps:
+           - task: DotNetCoreCLI@2
+             inputs:
+               command: 'test'
+               projects: 'sampleUnitTest/sampleUnitTest.csproj'
+               arguments: '--configuration $(buildConfiguration)'
+
+
+
+  - stage: deploy 
+    jobs:
+    - deployment: Deploy 
+      environment: 'newdepgroup'
+      strategy:
+       runOnce:
+        deploy:  
+          steps:
+            - task: DownloadBuildArtifacts@1
+              inputs:
+               buildType: 'current'
+               downloadType: 'single'
+               artifactName: 'drop'
+               downloadPath: '$(System.ArtifactsDirectory)'
+       
+            - task: IISWebAppManagementOnMachineGroup@0
+              inputs:
+                EnableIIS: true
+                IISDeploymentType: 'IISWebsite'
+                ActionIISWebsite: 'CreateOrUpdateWebsite'
+                WebsiteName: 'Default website'
+                WebsitePhysicalPath: '%SystemDrive%\inetpub\wwwroot'
+                WebsitePhysicalPathAuth: 'WebsiteUserPassThrough'
+
+            - task: IISWebAppDeploymentOnMachineGroup@0
+              inputs:
+                WebSiteName: 'Default website'
+                Package: '$(System.ArtifactsDirectory)/drop/WebApplication1.zip'
